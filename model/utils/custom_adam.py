@@ -59,7 +59,7 @@ class LREQAdam(Optimizer):
 
                 # Decay the first and second moment running average coefficient
                 # exp_avg.mul_(beta1).add_(1 - beta1, grad)
-                exp_avg_sq.mul_(beta_2).addcmul_(1 - beta_2, grad, grad)
+                exp_avg_sq.mul_(beta_2).addcmul_(grad, grad, value=1 - beta_2)
                 denom = exp_avg_sq.sqrt().add_(group['eps'])
 
                 # bias_correction1 = 1 - beta1 ** state['step'] # 1
@@ -71,6 +71,6 @@ class LREQAdam(Optimizer):
                 if hasattr(p, 'lr_equalization_coef'):
                     step_size *= p.lr_equalization_coef
 
-                p.data.addcdiv_(-step_size, grad, denom) # p = p + (-steo_size)/grad * demon
+                p.data.addcdiv_(grad, denom, value=-step_size) # p = p + (-steo_size)/grad * demon
 
         return loss

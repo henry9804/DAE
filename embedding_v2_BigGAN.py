@@ -19,8 +19,9 @@ from training_utils import *
 from model.utils.biggan_config import BigGANConfig
 import model.E.E_BIG as BE_BIG
 from model.utils.custom_adam import LREQAdam
-from metric.grad_cam import GradCAM, GradCamPlusPlus, GuidedBackPropagation, mask2cam
+# from metric.grad_cam import GradCAM, GradCamPlusPlus, GuidedBackPropagation, mask2cam
 import torch.nn as nn
+from tqdm import tqdm
 
 def train(tensor_writer = None, args = None, imgs_tensor = None):
 
@@ -34,27 +35,28 @@ def train(tensor_writer = None, args = None, imgs_tensor = None):
     generator.load_state_dict(torch.load(model_path))
     
     # label/id/flag : bigGAN with imageNet_1K
-    flag = np.array(30) # 30-frog, 22-eagle 7-cock 207-yellow dog 712- peiyangming
-    print(flag)
-    label = np.ones(args.batch_size)
-    label = flag * label
-    label = one_hot(label)
+    # flag = np.array(30) # 30-frog, 22-eagle 7-cock 207-yellow dog 712- peiyangming
+    # print(flag)
+    # label = np.ones(args.batch_size)
+    # label = flag * label
+    # label = one_hot(label)
+    label = np.load('model/labels.npy')
     conditions = torch.tensor(label, dtype=torch.float).cuda() # as label
     truncation = torch.tensor(0.4, dtype=torch.float).cuda()
     embed = generator.embeddings(conditions) # 1000 => z_dim: 128
-    z = truncated_noise_sample(truncation=0.4, batch_size=args.batch_size, seed=args.iterations%30000)
+    z = truncated_noise_sample(truncation=0.4, batch_size=len(label), seed=args.iterations%30000)
     z = torch.tensor(z, dtype=torch.float).cuda()
-    cond_vector = torch.cat((z, embed), dim=1) # 128->256
+    cond_vector_ = torch.cat((z, embed), dim=1) # 128->256
     #cond_vector.requires_grad=True
-    
-    #vgg16->Grad-CAM
-    vgg16 = torchvision.models.vgg16(pretrained=True).cuda()
-    final_layer = None
-    for name, m in vgg16.named_modules():
-        if isinstance(m, nn.Conv2d):
-            final_layer = name
-    grad_cam_plus_plus = GradCamPlusPlus(vgg16, final_layer)
-    gbp = GuidedBackPropagation(vgg16)
+
+    # vgg11->Grad-CAM
+    # vgg11 = torchvision.models.vgg11(pretrained=True).cuda()
+    # final_layer = None
+    # for name, m in vgg11.named_modules():
+    #     if isinstance(m, nn.Conv2d):
+    #         final_layer = name
+    # grad_cam_plus_plus = GradCamPlusPlus(vgg11, final_layer)
+    # gbp = GuidedBackPropagation(vgg11)
 
     
     E = BE_BIG.BE(startf=args.start_features, maxf=512, layer_count=int(math.log(args.img_size,2)-1), latent_size=512, channels=3, biggan=True).to(device)
@@ -75,7 +77,8 @@ def train(tensor_writer = None, args = None, imgs_tensor = None):
     interval = args.batch_size
     w_all = []
     img_all = [] 
-    for g in range(0, num//interval): 
+    for g in tqdm(range(0, num//interval), desc='batch', position=0):
+        cond_vector = cond_vector_[g*interval : (g+1)*interval]
         imgs1 = imgs_tensor[g*interval : (g+1)*interval]
         if args.optimizeE == False:
             const1, w1_ = E(imgs1,cond_vector)
@@ -85,67 +88,67 @@ def train(tensor_writer = None, args = None, imgs_tensor = None):
         else:
             E.load_state_dict(torch.load(args.checkpoint_dir_E)) # if not this reload, the max num of optimizing images is about 5-6.
             E_optimizer.state = collections.defaultdict(dict) # Fresh the optimizer state. E_optimizer = LREQAdam([{'params': E.parameters()},], lr=args.lr, betas=(args.beta_1, 0.99), weight_decay=0) 
-        loss_msiv_min = torch.tensor(0.)
-        for iteration in range(0,args.iterations):
+        loss_msiv_min = 0
+        for iteration in tqdm(range(0,args.iterations), desc='iteration', position=1):
             if args.optimizeE == True:
                 const1, w1 = E(imgs1,cond_vector)
             #imgs2 = Gs.forward(w1,int(math.log(args.img_size,2)-2)) # 7->512 / 6->256
-            imgs2, _=generator(w1, conditions, truncation)
+            imgs2, _=generator(w1, conditions[g*interval : (g+1)*interval], truncation)
             const2, w2 = E(imgs2,cond_vector)
 
-            mask_1 = grad_cam_plus_plus(imgs1,None) #[c,1,h,w]
-            mask_2 = grad_cam_plus_plus(imgs2,None)
+            # mask_1 = grad_cam_plus_plus(imgs1,None) #[c,1,h,w]
+            # mask_2 = grad_cam_plus_plus(imgs2,None)
             # imgs1.retain_grad()
             # imgs2.retain_grad()
-            imgs1_ = imgs1.detach().clone()
-            imgs1_.requires_grad = True
-            imgs2_ = imgs2.detach().clone()
-            imgs2_.requires_grad = True
-            grad_1 = gbp(imgs1_) # [n,c,h,w]
-            grad_2 = gbp(imgs2_)
-            heatmap_1,cam_1 = mask2cam(mask_1,imgs1)
-            heatmap_2,cam_2 = mask2cam(mask_2,imgs2)
+            # imgs1_ = imgs1.detach().clone()
+            # imgs1_.requires_grad = True
+            # imgs2_ = imgs2.detach().clone()
+            # imgs2_.requires_grad = True
+            # grad_1 = gbp(imgs1_) # [n,c,h,w]
+            # grad_2 = gbp(imgs2_)
+            # heatmap_1,cam_1 = mask2cam(mask_1,imgs1)
+            # heatmap_2,cam_2 = mask2cam(mask_2,imgs2)
             
             ##Image Vectors
             #Image
             loss_imgs, loss_imgs_info = space_loss(imgs1,imgs2,lpips_model=loss_lpips)
 
-#             #loss AT1
-#             imgs_medium_1 = imgs1[:,:,:,imgs1.shape[3]//8:-imgs1.shape[3]//8]#.detach().clone()
-#             imgs_medium_2 = imgs2[:,:,:,imgs2.shape[3]//8:-imgs2.shape[3]//8]#.detach().clone()
-#             loss_medium, loss_medium_info = space_loss(imgs_medium_1,imgs_medium_2,lpips_model=loss_lpips)
-#             loss_medium, loss_medium_info = space_loss(mask_1.detach().clone(),mask_2.detach().clone(),lpips_model=loss_lpips)
+            # #loss AT1
+            # imgs_medium_1 = imgs1[:,:,:,imgs1.shape[3]//8:-imgs1.shape[3]//8]#.detach().clone()
+            # imgs_medium_2 = imgs2[:,:,:,imgs2.shape[3]//8:-imgs2.shape[3]//8]#.detach().clone()
+            # loss_medium, loss_medium_info = space_loss(imgs_medium_1,imgs_medium_2,lpips_model=loss_lpips)
+            # loss_medium, loss_medium_info = space_loss(mask_1.detach().clone(),mask_2.detach().clone(),lpips_model=loss_lpips)
 
-#             #loss AT2
-#             imgs_small_1 = imgs1[:,:,\
-#             imgs1.shape[2]//8+imgs1.shape[2]//32:-imgs1.shape[2]//8-imgs1.shape[2]//32,\
-#             imgs1.shape[3]//8+imgs1.shape[3]//32:-imgs1.shape[3]//8-imgs1.shape[3]//32]#.detach().clone()
-#             imgs_small_2 = imgs2[:,:,\
-#             imgs2.shape[2]//8+imgs2.shape[2]//32:-imgs2.shape[2]//8-imgs2.shape[2]//32,\
-#             imgs2.shape[3]//8+imgs2.shape[3]//32:-imgs2.shape[3]//8-imgs2.shape[3]//32]#.detach().clone()
-#             loss_small, loss_small_info = space_loss(imgs_small_1,imgs_small_2,lpips_model=loss_lpips)
+            # #loss AT2
+            # imgs_small_1 = imgs1[:,:,\
+            # imgs1.shape[2]//8+imgs1.shape[2]//32:-imgs1.shape[2]//8-imgs1.shape[2]//32,\
+            # imgs1.shape[3]//8+imgs1.shape[3]//32:-imgs1.shape[3]//8-imgs1.shape[3]//32]#.detach().clone()
+            # imgs_small_2 = imgs2[:,:,\
+            # imgs2.shape[2]//8+imgs2.shape[2]//32:-imgs2.shape[2]//8-imgs2.shape[2]//32,\
+            # imgs2.shape[3]//8+imgs2.shape[3]//32:-imgs2.shape[3]//8-imgs2.shape[3]//32]#.detach().clone()
+            # loss_small, loss_small_info = space_loss(imgs_small_1,imgs_small_2,lpips_model=loss_lpips)
 
         ##--Mask_Cam as AT1 (HeatMap from Mask)
-            mask_1 = mask_1.float().to(device)
-            mask_1.requires_grad=True
-            mask_2 = mask_2.float().to(device)
-            mask_2.requires_grad=True
-            loss_mask, loss_mask_info = space_loss(mask_1.detach().clone(),mask_2.detach().clone(),lpips_model=loss_lpips)
+            # mask_1 = mask_1.float().to(device)
+            # mask_1.requires_grad=True
+            # mask_2 = mask_2.float().to(device)
+            # mask_2.requires_grad=True
+            # loss_mask, loss_mask_info = space_loss(mask_1.detach().clone(),mask_2.detach().clone(),lpips_model=loss_lpips)
 
         ##--Grad_CAM as AT2 (from mask with img)
-            cam_1 = cam_1.float().to(device)
-            cam_1.requires_grad=True
-            cam_2 = cam_2.float().to(device)
-            cam_2.requires_grad=True
-            loss_Gcam, loss_Gcam_info = space_loss(cam_1.detach().clone(),cam_2.detach().clone(),lpips_model=loss_lpips)
+            # cam_1 = cam_1.float().to(device)
+            # cam_1.requires_grad=True
+            # cam_2 = cam_2.float().to(device)
+            # cam_2.requires_grad=True
+            # loss_Gcam, loss_Gcam_info = space_loss(cam_1.detach().clone(),cam_2.detach().clone(),lpips_model=loss_lpips)
 
-#             E_optimizer.zero_grad()
-#             loss_msiv = loss_imgs + loss_medium*0 + loss_small*0
-#             loss_msiv.backward(retain_graph=True) #retain_graph=True
-#             E_optimizer.step()
+            # E_optimizer.zero_grad()
+            # loss_msiv = loss_imgs + loss_medium*0 + loss_small*0
+            # loss_msiv.backward(retain_graph=True) #retain_graph=True
+            # E_optimizer.step()
             
             E_optimizer.zero_grad()
-            loss_msiv = loss_imgs  + loss_mask + loss_Gcam
+            loss_msiv = loss_imgs # + loss_mask + loss_Gcam
             loss_msiv.backward(retain_graph=True) # retain_graph=True
             E_optimizer.step()
 
@@ -163,18 +166,18 @@ def train(tensor_writer = None, args = None, imgs_tensor = None):
             loss_msLv = loss_w*0.01 #  + loss_c2*0.01 #+ w1.norm(p=rho)*beta # 0.0003 0.0001 看要什么效果，重视重构效果就降低这个w1.norm(), 重视语意效果就提高
             loss_msLv.backward(retain_graph=True) # retain_graph=True
             E_optimizer.step()
-
+            '''
             if iteration == args.iterations//2:
-                loss_msiv_min = loss_msiv
+                loss_msiv_min = loss_msiv.item()
 
-            if loss_msiv_min > loss_msiv*1.05:
-                loss_msiv_min = loss_msiv
-                torch.save(w1,resultPath1_2+'/id%d-iter%d-norm%f-imgLoss-min%f.pt'%(g,iteration,w1.norm(),loss_msiv_min.item()))
-                test_img_min1 = torch.cat((imgs1[:n_row],imgs2[:n_row]))*0.5+0.5
-                torchvision.utils.save_image(test_img_min1, resultPath1_1+'/id%d_ep%d-norm%.2f-imgLoss-min%f.jpg'%(g, iteration, w1.norm(), loss_msiv_min.item()),nrow=2)
+            if loss_msiv_min > loss_msiv.item()*1.05:
+                loss_msiv_min = loss_msiv.item()
+                torch.save(w1,resultPath1_2+'/id%d-iter%d-norm%f-imgLoss-min%f.pt'%(g,iteration,w1.norm(),loss_msiv_min))
+                # test_img_min1 = torch.cat((imgs1[:n_row],imgs2[:n_row]))*0.5+0.5
+                # torchvision.utils.save_image(test_img_min1, resultPath1_1+'/id%d_ep%d-norm%.2f-imgLoss-min%f.jpg'%(g, iteration, w1.norm(), loss_msiv_min),nrow=2)
                 with open(resultPath+'/loss_min.txt','a+') as f:
-                    print('ep%d_iter%d_minImg%.5f_wNorm%f'%(g,iteration,loss_msiv_min.item(),w1.norm()),file=f)
-
+                    print('ep%d_iter%d_minImg%.5f_wNorm%f'%(g,iteration,loss_msiv_min,w1.norm()),file=f)
+            '''
             # if w_norm_min > w1.norm()*1.05 :
             #     w_norm_min = w1.norm()
             #     torch.save(w1,resultPath1_2+'/id%d-iter%d-norm-min%f-imgLoss%f.pt'%(g,iteration,w1.norm(),loss_msiv_min.item()))
@@ -183,36 +186,23 @@ def train(tensor_writer = None, args = None, imgs_tensor = None):
             #     with open(resultPath+'/loss_min.txt','a+') as f:
             #         print('ep%d_iter%d_Img%.5f_wNorm-min%f'%(g,iteration,loss_msiv_min.item(),w1.norm()),file=f)
 
-            print('id_'+str(g)+'_____i_'+str(iteration))
-            print('[loss_imgs_mse[img,img_mean,img_std], loss_imgs_kl, loss_imgs_cosine, loss_imgs_ssim, loss_imgs_lpips]')
-            print('---------ImageSpace--------')
-            print('loss_small_info: %s'%loss_mask_info)
-            print('loss_medium_info: %s'%loss_Gcam_info)
-            print('loss_imgs_info: %s'%loss_imgs_info)
-            print('---------LatentSpace--------')
-            print('loss_w_info: %s'%loss_w_info)
-            # print('loss_c1_info: %s'%loss_c1_info)
-            print('loss_c2_info: %s'%loss_c2_info)
-            print('w_norm: %s'%w1.norm())
-            print('Img_loss_min: %s'%loss_msiv_min.item())
-
             it_d += 1
             if iteration % 100 == 0:
                 n_row = batch_size
-                test_img = torch.cat((imgs1[:n_row],imgs2[:n_row]))*0.5+0.5
-                torchvision.utils.save_image(test_img, resultPath1_1+'/id%d_ep%d-norm%.2f.jpg'%(g,iteration,w1.norm()),nrow=2) # nrow=3
+                # test_img = torch.cat((imgs1[:n_row],imgs2[:n_row]))*0.5+0.5
+                # torchvision.utils.save_image(test_img, resultPath1_1+'/id%d_ep%d-norm%.2f.jpg'%(g,iteration,w1.norm()),nrow=2) # nrow=3
                 with open(resultPath+'/Loss.txt', 'a+') as f:
                     print('id_'+str(g)+'_____i_'+str(iteration),file=f)
                     print('[loss_imgs_mse[img,img_mean,img_std], loss_imgs_kl, loss_imgs_cosine, loss_imgs_ssim, loss_imgs_lpips]',file=f)
                     print('---------ImageSpace--------',file=f)
-                    print('loss_small_info: %s'%loss_mask_info,file=f)
-                    print('loss_medium_info: %s'%loss_Gcam_info,file=f)
+                    # print('loss_small_info: %s'%loss_mask_info,file=f)
+                    # print('loss_medium_info: %s'%loss_Gcam_info,file=f)
                     print('loss_imgs_info: %s'%loss_imgs_info,file=f)
                     print('---------LatentSpace--------',file=f)
                     print('loss_w_info: %s'%loss_w_info,file=f)
                     # print('loss_c1_info: %s'%loss_c1_info,file=f)
                     print('loss_c2_info: %s'%loss_c2_info,file=f)
-                    print('Img_loss: %s'%loss_msiv_min.item(),file=f)
+                    print('Img_loss: %s'%loss_msiv_min,file=f)
 
                 for i,j in enumerate(w1):
                     torch.save(j.unsqueeze(0),resultPath1_2+'/id%d-i%d-w%d-norm%f.pt'%(g,i,iteration,w1.norm()))
@@ -221,8 +211,8 @@ def train(tensor_writer = None, args = None, imgs_tensor = None):
                     #torch.save(E.state_dict(), resultPath1_2+'/E_model_ep%d.pth'%iteration)
 
         torchvision.utils.save_image(imgs2*0.5+0.5,writer_path+'/%s_rec.png'%str(g).rjust(5,'0'))
-        w_all.append(w1[0])
-        img_all.append(imgs2[0])
+        w_all.append(w1[0].cpu())
+        img_all.append(imgs2[0].cpu())
 
     w_all_tensor = torch.stack(w_all, dim=0)
     img_all_tensor = torch.stack(img_all, dim=0)
@@ -232,12 +222,12 @@ def train(tensor_writer = None, args = None, imgs_tensor = None):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='the training args')
-    parser.add_argument('--iterations', type=int, default=1501)
+    parser.add_argument('--iterations', type=int, default=100)
     parser.add_argument('--lr', type=float, default=0.0003) # better than 0.01 W:0.003, E:0.0003
     parser.add_argument('--beta_1', type=float, default=0.0)
     parser.add_argument('--batch_size', type=int, default=1)
     parser.add_argument('--experiment_dir', default=None) #None
-    parser.add_argument('--img_dir', default='./bigGAN_inversion/id30/') # pt or directory
+    parser.add_argument('--img_dir', default='model/image256/') # pt or directory
     parser.add_argument('--img_size',type=int, default=256)
     parser.add_argument('--img_channels', type=int, default=3)# RGB:3 ,L:1
     parser.add_argument('--z_dim', type=int, default=128)
@@ -245,7 +235,7 @@ if __name__ == "__main__":
     parser.add_argument('--optimizeE', type=bool, default=True) # if not, optimize W directly True False
     parser.add_argument('--beta', type=float, default=10e-7)
     parser.add_argument('--norm_p', type=int, default=2)
-    parser.add_argument('--checkpoint_dir_E', default='./result/BigGAN-256/models/E_model_ep30000.pth')
+    parser.add_argument('--checkpoint_dir_E', default='./checkpoint/E/E_biggan_256_ep5.pth')
     args = parser.parse_args()
 
     result_path = './result_bigGAN_id30_GradCAM'
@@ -272,7 +262,7 @@ if __name__ == "__main__":
         img_list = os.listdir(args.img_dir)
         img_list.sort()
         img_tensor_list = [imgPath2loader(args.img_dir+i,size=args.img_size) for i in img_list \
-        if i.endswith('jpg') or i.endswith('png')]
+        if i.endswith('jpg') or i.endswith('JPEG') or i.endswith('png')]
         imgs1 = torch.stack(img_tensor_list, dim = 0).to(device)
     else: # pt
         imgs1 = torch.load(args.img_dir)

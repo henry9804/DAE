@@ -137,7 +137,7 @@ class BEBlock(nn.Module):
         #x = F.leaky_relu(x, 0.2)
         x = self.conv_1(x)
         #x = self.instance_norm_1(x)
-        x = torch.addcmul(x, value=1.0, tensor1=self.noise_weight_1, tensor2=torch.randn([x.shape[0], 1, x.shape[2], x.shape[3]]).to(x.device))
+        x = torch.addcmul(x, value=1.0, tensor1=self.noise_weight_1, tensor2=torch.randn([x.shape[0], 1, x.shape[2], x.shape[3]], dtype=torch.float).to(x.device))
         x = x + self.bias_1
         x = F.leaky_relu(x, 0.2)
 
@@ -152,7 +152,7 @@ class BEBlock(nn.Module):
             #x = F.leaky_relu(x, 0.2)
             x = self.conv_2(x)
             #x = self.instance_norm_2(x)
-            x = torch.addcmul(x, value=1.0, tensor1=self.noise_weight_2, tensor2=torch.randn([x.shape[0], 1, x.shape[2], x.shape[3]]).to(x.device))
+            x = torch.addcmul(x, value=1.0, tensor1=self.noise_weight_2, tensor2=torch.randn([x.shape[0], 1, x.shape[2], x.shape[3]], dtype=torch.float).to(x.device))
             x = x + self.bias_2
             x = F.leaky_relu(x, 0.2)
             if self.inputs != self.outputs: 

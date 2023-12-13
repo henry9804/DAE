@@ -21,8 +21,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# import sys
-# sys.path.append("..")
+import sys
+sys.path.append("..")
 
 from model.utils.biggan_config import BigGANConfig
 from model.utils.biggan_file_utils import cached_path
@@ -305,12 +305,12 @@ class BigGAN(nn.Module):
 
 if __name__ == "__main__":
     import PIL
-    from utils import truncated_noise_sample, save_as_images, one_hot_from_names
-    from convert_tf_to_pytorch import load_tf_weights_in_biggan
+    from pytorch_pretrained_biggan.utils import truncated_noise_sample, save_as_images, one_hot_from_names
+    from pytorch_pretrained_biggan.convert_tf_to_pytorch import load_tf_weights_in_biggan
 
     load_tf = False
-    cache_path = './checkpoints-pytorch/512/G-512.pt'
-    resolved_config_file = './checkpoints-pytorch/512/biggan-deep-512-config.json'
+    cache_path = '../checkpoint/biggan/256/G-256.pt'
+    resolved_config_file = '../checkpoint/biggan/256/biggan-deep-256-config.json'
     config = BigGANConfig.from_json_file(resolved_config_file)
     model = BigGAN(config)
     if load_tf:
@@ -337,11 +337,14 @@ if __name__ == "__main__":
     noise = torch.tensor(noise, dtype=torch.float)
     label = torch.tensor(label, dtype=torch.float)
     print(label.shape)
-    print(noise,shape)
-    # with torch.no_grad():
-    #     outputs = model(noise, label, truncation)
-    #print(outputs.shape)
-    #print(model)
+    print(noise.shape)
+    with torch.no_grad():
+        outputs, cond = model(noise, label, truncation)
+    print(outputs.shape)
+    print(cond.shape)
+    # print(model)
 
-    #import torchvision
-    #torchvision.utils.save_image(outputs*0.5+0.5,'output512.png')
+    import torchvision
+    for index, img in enumerate(outputs):        
+        torchvision.utils.save_image(img*0.5+0.5,'image256/{}.png'.format(index))
+    np.save('labels.npy', label.numpy())

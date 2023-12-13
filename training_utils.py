@@ -10,6 +10,13 @@ import torchvision
 loader = torchvision.transforms.Compose([torchvision.transforms.ToTensor()])
 def imgPath2loader(image_name,size):
     image = Image.open(image_name).convert('RGB')
+    w, h = image.size
+    if w>h:
+        offset = (int)((w - h)/2)
+        image = image.crop((offset, 0, offset+h, h))
+    elif h>w:
+        offset = (int)((h - w)/2)
+        image = image.crop((0, offset, w, offset+w))
     image = image.resize((size,size))
     image = loader(image)#.unsqueeze(0)
     return image.to(torch.float)
@@ -53,7 +60,7 @@ def set_seed(seed): #随机数设置
 
 def space_loss(imgs1,imgs2,image_space=True,lpips_model=None):
     loss_mse = torch.nn.MSELoss()
-    loss_kl = torch.nn.KLDivLoss()
+    loss_kl = torch.nn.KLDivLoss(reduction='batchmean')
     ssim_loss = pytorch_ssim.SSIM()
     loss_lpips = lpips_model
 
@@ -65,7 +72,9 @@ def space_loss(imgs1,imgs2,image_space=True,lpips_model=None):
     loss_imgs_mse_3 = loss_mse(imgs1.std(),imgs2.std())
     loss_imgs_mse = loss_imgs_mse_1 #+ loss_imgs_mse_2 + loss_imgs_mse_3
 
-    imgs1_kl, imgs2_kl = torch.nn.functional.softmax(imgs1),torch.nn.functional.softmax(imgs2)
+    batch_size = imgs1.shape[0]
+    imgs1_kl = torch.nn.functional.softmax(imgs1.view(batch_size, -1), dim=1).view(imgs1.shape)
+    imgs2_kl = torch.nn.functional.softmax(imgs2.view(batch_size, -1), dim=1).view(imgs2.shape)
     loss_imgs_kl = loss_kl(torch.log(imgs2_kl),imgs1_kl) #D_kl(True=y1_imgs||Fake=y2_imgs)
     loss_imgs_kl = torch.where(torch.isnan(loss_imgs_kl),torch.full_like(loss_imgs_kl,0), loss_imgs_kl)
     loss_imgs_kl = torch.where(torch.isinf(loss_imgs_kl),torch.full_like(loss_imgs_kl,1), loss_imgs_kl)
