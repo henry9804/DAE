@@ -376,26 +376,30 @@ class Generator(nn.Module):
 
         self.layers = nn.ModuleList(layers)
         self.attention_layer_position = config.attention_layer_position
+
+        clf = config.clf
+        self.clf_on = clf["on"]
         latent_clf = []
-        # TODO: find how to dynamically fecth size
-        res = [4, 8, 8, 16, 16, 32, 32, 64, 64, 64, 128, 128, 256]
-        for i, (layer, r) in enumerate(zip(layers, res)):
-            # TODO: config must support dynamic hyperparams
-            if i != config.attention_layer_position:
-                size = r**2
-                latent_clf.append(
-                    LatentClassfier(
-                        size=size,
-                        in_channels=layer.conv_3.out_channels,
-                        conv_down=1,
-                        hidden_dim=32,
-                        output_dim=1,
-                        num_layers=4,
+        if self.clf_on:
+            # TODO: find how to dynamically fecth size
+            res = [4, 8, 8, 16, 16, 32, 32, 64, 64, 64, 128, 128, 256]
+            for i, (layer, r) in enumerate(zip(layers, res)):
+                # TODO: config must support dynamic hyperparams
+                if i != config.attention_layer_position:
+                    size = r**2
+                    latent_clf.append(
+                        LatentClassfier(
+                            size=size,
+                            in_channels=layer.conv_3.out_channels,
+                            conv_down=clf["conv_down"],
+                            hidden_dim=clf["hidden_dim"],
+                            output_dim=clf["output_dim"],
+                            num_layers=clf["num_layers"],
+                        )
                     )
-                )
-            else:
-                latent_clf.append(nn.Identity())
-        self.latent_clf = nn.ModuleList(latent_clf)
+                else:
+                    latent_clf.append(nn.Identity())
+            self.latent_clf = nn.ModuleList(latent_clf)
 
         self.bn = BigGANBatchNorm(
             ch, n_stats=config.n_stats, eps=config.eps, conditional=False
@@ -423,11 +427,8 @@ class Generator(nn.Module):
                 z = layer(z, cond_vector, truncation)  # [5, 2048, 4, 4]
             else:
                 z = layer(z)  # [5, 2048, 8, 8]
-            if i != self.attention_layer_position:
+            if self.clf_on and i != self.attention_layer_position:
                 out_clf.append(clf(z))
-        import pdb
-
-        pdb.set_trace()
         z = self.bn(z, truncation)  # [5, 128, 256, 256]
 
         z = self.relu(z)
@@ -437,6 +438,7 @@ class Generator(nn.Module):
         z = z[:, :3, ...]  # [5, 3, 256, 256]
 
         z_final = self.tanh(z)
+        # TODO: clf return here
         return z_final  # [5, 3, 256, 256]
 
 
