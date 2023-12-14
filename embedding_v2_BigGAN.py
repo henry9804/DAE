@@ -19,13 +19,15 @@ from training_utils import *
 from model.utils.biggan_config import BigGANConfig
 import model.E.E_BIG as BE_BIG
 from model.utils.custom_adam import LREQAdam
+from images.imagenet_dataset import ImgaeNetDataset
+from torch.utils.data import DataLoader
 
 # from metric.grad_cam import GradCAM, GradCamPlusPlus, GuidedBackPropagation, mask2cam
 import torch.nn as nn
 from tqdm import tqdm
 
 
-def train(tensor_writer=None, args=None, imgs_tensor=None):
+def train(tensor_writer=None, args=None, dataloader=None):
 
     beta = args.beta
     rho = args.norm_p
@@ -36,25 +38,8 @@ def train(tensor_writer=None, args=None, imgs_tensor=None):
     generator = BigGAN(config).to(device)
     generator.load_state_dict(torch.load(model_path), strict=False)
 
-    # label/id/flag : bigGAN with imageNet_1K
-    # flag = np.array(30) # 30-frog, 22-eagle 7-cock 207-yellow dog 712- peiyangming
-    # print(flag)
-    # label = np.ones(args.batch_size)
-    # label = flag * label
-    # label = one_hot(label)
-    label = np.load("model/labels.npy")
-    conditions = torch.tensor(label, dtype=torch.float).cuda()  # as label
-    truncation = torch.tensor(0.4, dtype=torch.float).cuda()
-    embed = generator.embeddings(conditions)  # 1000 => z_dim: 128
-    z = truncated_noise_sample(
-        truncation=0.4, batch_size=len(label), seed=args.iterations % 30000
-    )
-    z = torch.tensor(z, dtype=torch.float).cuda()
-    cond_vector_ = torch.cat((z, embed), dim=1)  # 128->256
-    # cond_vector.requires_grad=True
-
     # vgg11->Grad-CAM
-    # vgg11 = torchvision.models.vgg11(pretrained=True).cuda()
+    # vgg11 = torchvision.models.vgg11(pretrained=True).to(device)
     # final_layer = None
     # for name, m in vgg11.named_modules():
     #     if isinstance(m, nn.Conv2d):
@@ -91,13 +76,20 @@ def train(tensor_writer=None, args=None, imgs_tensor=None):
             weight_decay=0.0,
         )  # 0.0003
 
-    num = imgs_tensor.shape[0]
-    interval = args.batch_size
     w_all = []
     img_all = []
-    for g in tqdm(range(0, num // interval), desc="batch", position=0):
-        cond_vector = cond_vector_[g * interval : (g + 1) * interval]
-        imgs1 = imgs_tensor[g * interval : (g + 1) * interval]
+
+    for g, (imgs1, labels) in tqdm(enumerate(dataloader), desc="batch", position=0):
+        truncation = torch.tensor(0.4, dtype=torch.float).to(device)
+        conditions = one_hot(labels).to(device)
+        embed = generator.embeddings(conditions)  # 1000 => z_dim: 128
+        z = truncated_noise_sample(
+            truncation=0.4, batch_size=args.batch_size, seed=args.iterations % 30000
+        )
+        z = torch.tensor(z, dtype=torch.float).to(device)
+        cond_vector = torch.cat((z, embed), dim=1)  # 128->256
+        # cond_vector.requires_grad=True
+        imgs1 = imgs1.to(device)
         if args.optimizeE == False:
             const1, w1_ = E(imgs1, cond_vector)
             w1 = w1_.detach()
@@ -123,7 +115,7 @@ def train(tensor_writer=None, args=None, imgs_tensor=None):
                 const1, w1 = E(imgs1, cond_vector)
             # imgs2 = Gs.forward(w1,int(math.log(args.img_size,2)-2)) # 7->512 / 6->256
             imgs2, _ = generator(
-                w1, conditions[g * interval : (g + 1) * interval], truncation
+                w1, conditions, truncation
             )
             const2, w2 = E(imgs2, cond_vector)
 
@@ -265,14 +257,14 @@ def train(tensor_writer=None, args=None, imgs_tensor=None):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="the training args")
-    parser.add_argument("--iterations", type=int, default=100)
+    parser.add_argument("--iterations", type=int, default=1500)
     parser.add_argument(
         "--lr", type=float, default=0.0003
     )  # better than 0.01 W:0.003, E:0.0003
     parser.add_argument("--beta_1", type=float, default=0.0)
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--experiment_dir", default=None)  # None
-    parser.add_argument("--img_dir", default="model/image256/")  # pt or directory
+    parser.add_argument("--img_dir", default="images/ILSVRC2012_img_val")  # pt or directory
     parser.add_argument("--img_size", type=int, default=256)
     parser.add_argument("--img_channels", type=int, default=3)  # RGB:3 ,L:1
     parser.add_argument("--z_dim", type=int, default=128)
@@ -314,17 +306,7 @@ if __name__ == "__main__":
     use_gpu = True
     device = torch.device("cuda" if use_gpu else "cpu")
 
-    if os.path.isdir(args.img_dir):  # img_file
-        img_list = os.listdir(args.img_dir)
-        img_list.sort()
-        img_tensor_list = [
-            imgPath2loader(args.img_dir + i, size=args.img_size)
-            for i in img_list
-            if i.endswith("jpg") or i.endswith("JPEG") or i.endswith("png")
-        ]
-        imgs1 = torch.stack(img_tensor_list, dim=0).to(device)
-    else:  # pt
-        imgs1 = torch.load(args.img_dir)
-    imgs1 = imgs1 * 2 - 1  # [0,1]->[-1,1]
+    img_dataset = ImgaeNetDataset(args.img_dir, (args.img_size, args.img_size))
+    img_dataloader = DataLoader(img_dataset, batch_size=args.batch_size, shuffle=True)
 
-    train(tensor_writer=writer, args=args, imgs_tensor=imgs1)
+    train(tensor_writer=writer, args=args, dataloader=img_dataloader)

@@ -1,6 +1,6 @@
 *.pyc
 checkpoint/
-images/
+images/ILSVRC2012_img_val
 result*/
 reconstructed_img.png
 test.py
