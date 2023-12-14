@@ -375,6 +375,23 @@ class Generator(nn.Module):
             )
 
         self.layers = nn.ModuleList(layers)
+
+        self.bn = BigGANBatchNorm(
+            ch, n_stats=config.n_stats, eps=config.eps, conditional=False
+        )
+        self.relu = nn.ReLU()
+        self.conv_to_rgb = snconv2d(
+            in_channels=ch, out_channels=ch, kernel_size=3, padding=1, eps=config.eps
+        )
+        self.tanh = nn.Tanh()
+
+        # Freezing base GAN
+        if config.freeze_gan:
+            print("Freezing GAN params")
+            for p in self.parameters():
+                p.requires_grad = False
+
+        # Classifiers
         self.attention_layer_position = config.attention_layer_position
 
         clf = config.clf
@@ -384,7 +401,6 @@ class Generator(nn.Module):
             # TODO: find how to dynamically fecth size
             res = [4, 8, 8, 16, 16, 32, 32, 64, 64, 64, 128, 128, 256]
             for i, (layer, r) in enumerate(zip(layers, res)):
-                # TODO: config must support dynamic hyperparams
                 if i != config.attention_layer_position:
                     size = r**2
                     latent_clf.append(
@@ -400,15 +416,6 @@ class Generator(nn.Module):
                 else:
                     latent_clf.append(nn.Identity())
             self.latent_clf = nn.ModuleList(latent_clf)
-
-        self.bn = BigGANBatchNorm(
-            ch, n_stats=config.n_stats, eps=config.eps, conditional=False
-        )
-        self.relu = nn.ReLU()
-        self.conv_to_rgb = snconv2d(
-            in_channels=ch, out_channels=ch, kernel_size=3, padding=1, eps=config.eps
-        )
-        self.tanh = nn.Tanh()
 
     def forward(self, cond_vector, truncation):
         out_clf = []
@@ -490,6 +497,9 @@ class BigGAN(nn.Module):
         super(BigGAN, self).__init__()
         self.config = config
         self.embeddings = nn.Linear(config.num_classes, config.z_dim, bias=False)
+        if config.freeze_gan:
+            for p in self.embeddings.parameters():
+                p.requires_grad = False
         self.generator = Generator(config)
 
     def forward(self, z, class_label, truncation):
