@@ -22,5 +22,5 @@
   "output_dim": 256,
   "z_dim": 128,
   "clf_on": true,
-  "clf": {"conv_down": 32, "hidden_dim": 32, "output_dim": 1, "num_layers": 4}
+  "clf": { "conv_down": 32, "hidden_dim": 32, "output_dim": 1, "num_layers": 4 }
 }
