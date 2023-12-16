@@ -21,7 +21,6 @@
   "num_classes": 1000,
   "output_dim": 256,
   "z_dim": 128,
-  "clf_on": true,
   "freeze_gan": true,
-  "clf": { "conv_down": 32, "hidden_dim": 32, "output_dim": 1, "num_layers": 4 }
+  "clf": { "on": true, "conv_down": 32, "hidden_dim": 32, "output_dim": 1, "num_layers": 4 }
 }
