@@ -446,7 +446,7 @@ class Generator(nn.Module):
 
         z_final = self.tanh(z)
         # TODO: clf return here
-        return z_final  # [5, 3, 256, 256]
+        return z_final if not self.clf_on else z_final, out_clf  # [5, 3, 256, 256]
 
 
 class BigGAN(nn.Module):
