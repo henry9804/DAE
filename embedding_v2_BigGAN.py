@@ -79,6 +79,17 @@ def train(tensor_writer=None, args=None, dataloader=None):
             weight_decay=0.0,
         )  # 0.0003
 
+    # optimize clf
+    if config.clf["on"]:
+        clf_optimizer = LREQAdam(
+            [
+                {"params": generator.parameters()},
+            ],
+            lr=args.lr,
+            betas=(args.beta_1, 0.99),
+            weight_decay=0.0,
+        )  # 0.0003
+
     w_all = []
     img_all = []
 
@@ -162,8 +173,8 @@ def train(tensor_writer=None, args=None, dataloader=None):
                     clf_loss += F.binary_cross_entropy_with_logits(clf, is_real)
                 print(f"clf_loss={clf_loss}")
             clf_loss.backward()
-            E_optimizer.step()
-            E_optimizer.zero_grad()
+            clf_optimizer.step()
+            clf_optimizer.zero_grad()
 
             # #loss AT1
             # imgs_medium_1 = imgs1[:,:,:,imgs1.shape[3]//8:-imgs1.shape[3]//8]#.detach().clone()
