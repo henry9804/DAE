@@ -427,15 +427,23 @@ class Generator(nn.Module):
 
         z = z.permute(0, 3, 1, 2).contiguous()  # [5, 2048, 4, 4]
 
-        for i, (layer, clf) in enumerate(
-            zip(self.layers, self.latent_clf)
-        ):  # 其中有一层是 self-attention
-            if isinstance(layer, GenBlock):
-                z = layer(z, cond_vector, truncation)  # [5, 2048, 4, 4]
-            else:
-                z = layer(z)  # [5, 2048, 8, 8]
-            if self.clf_on and i != self.attention_layer_position:
-                out_clf.append(clf(z))
+        if self.clf_on:
+            for i, (layer, clf) in enumerate(
+                zip(self.layers, self.latent_clf)
+            ):  # 其中有一层是 self-attention
+                if isinstance(layer, GenBlock):
+                    z = layer(z, cond_vector, truncation)  # [5, 2048, 4, 4]
+                else:
+                    z = layer(z)  # [5, 2048, 8, 8]
+                if i != self.attention_layer_position:
+                    out_clf.append(clf(z))
+        else:
+            for layer in self.layers:
+                if isinstance(layer, GenBlock):
+                    z = layer(z, cond_vector, truncation)  # [5, 2048, 4, 4]
+                else:
+                    z = layer(z)  # [5, 2048, 8, 8]
+
         z = self.bn(z, truncation)  # [5, 128, 256, 256]
 
         z = self.relu(z)

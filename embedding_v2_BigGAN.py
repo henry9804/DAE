@@ -93,59 +93,59 @@ def train(tensor_writer=None, args=None, dataloader=None):
     w_all = []
     img_all = []
 
-    for g, (imgs1, labels) in tqdm(enumerate(dataloader), desc="batch", position=0):
-        truncation = torch.tensor(0.4, dtype=torch.float).to(device)
-        conditions = one_hot(labels).to(device)
-        embed = generator.embeddings(conditions)  # 1000 => z_dim: 128
-        z = truncated_noise_sample(
-            truncation=0.4, batch_size=args.batch_size, seed=args.iterations % 30000
-        )
-        z = torch.tensor(z, dtype=torch.float).to(device)
-        cond_vector = torch.cat((z, embed), dim=1)  # 128->256
-        # cond_vector.requires_grad=True
-        imgs1 = imgs1.to(device)
-        if not args.optimizeE:  # frozen encoder
-            const1, w1_ = E(imgs1, cond_vector)
-            w1 = w1_.detach()
-            w1.requires_grad = True
-            E_optimizer = LREQAdam(
-                [
-                    {"params": w1},
-                ],
-                lr=args.lr,
-                betas=(args.beta_1, 0.99),
-                weight_decay=0,
+    truncation = torch.tensor(0.4, dtype=torch.float).to(device)
+    for iteration in tqdm(range(0, args.iterations), desc="iteration", position=1):
+        for g, (imgs1, labels) in tqdm(enumerate(dataloader), desc="batch", position=0):
+            conditions = one_hot(labels).to(device)
+            embed = generator.embeddings(conditions)  # 1000 => z_dim: 128
+            z = truncated_noise_sample(
+                truncation=0.4, batch_size=args.batch_size, seed=args.iterations % 30000
             )
-        else:
-            E.load_state_dict(
-                torch.load(args.checkpoint_dir_E)
-            )  # if not this reload, the max num of optimizing images is about 5-6.
-            E_optimizer.state = collections.defaultdict(
-                dict
-            )  # Fresh the optimizer state. E_optimizer = LREQAdam([{'params': E.parameters()},], lr=args.lr, betas=(args.beta_1, 0.99), weight_decay=0)
-        loss_msiv_min = 0
-        for iteration in tqdm(range(0, args.iterations), desc="iteration", position=1):
-            if args.optimizeE:
-                const1, w1 = E(imgs1, cond_vector)
+            z = torch.tensor(z, dtype=torch.float).to(device)
+            cond_vector = torch.cat((z, embed), dim=1)  # 128->256
+            # cond_vector.requires_grad=True
+            imgs1 = imgs1.to(device)
+            if not args.optimizeE:  # frozen encoder
+                const1, w1_ = E(imgs1, cond_vector)
+                w1 = w1_.detach()
+                w1.requires_grad = True
+                E_optimizer = LREQAdam(
+                    [
+                        {"params": w1},
+                    ],
+                    lr=args.lr,
+                    betas=(args.beta_1, 0.99),
+                    weight_decay=0,
+                )
+            else:
+                E.load_state_dict(
+                    torch.load(args.checkpoint_dir_E)
+                )  # if not this reload, the max num of optimizing images is about 5-6.
+                E_optimizer.state = collections.defaultdict(
+                    dict
+                )  # Fresh the optimizer state. E_optimizer = LREQAdam([{'params': E.parameters()},], lr=args.lr, betas=(args.beta_1, 0.99), weight_decay=0)
+            loss_msiv_min = 0
+            _, w1 = E(imgs1, cond_vector)
+            # if args.optimizeE:
+            #     const1, w1 = E(imgs1, cond_vector)
             # imgs2 = Gs.forward(w1,int(math.log(args.img_size,2)-2)) # 7->512 / 6->256
             # TODO: have to consider bigger batch sizes
-            batch_real = []
-            if np.random.random() < 0.5:
-                batch_real.append(True)
-                _, z = E(imgs1, cond_vector)
-                w1 = z
-            else:
-                batch_real.append(False)
-                w1 = z
-            is_real = torch.tensor([batch_real], dtype=float, device=w1.device)
+            if config.clf["on"]:
+                batch_real = []
+                batch_w = []
+                batch_real.append(torch.ones(args.batch_size, dtype=float, device=w1.device))
+                batch_w.append(w1)
+                batch_real.append(torch.zeros(args.batch_size, dtype=float, device=w1.device))
+                batch_w.append(z)
+                is_real = torch.concat(batch_real).reshape(-1,1)
+                w_ = torch.concat(batch_w)
 
             # Getting
-            imgs2, _ = generator(w1, conditions, truncation)
+            imgs2, _ = generator(w_, conditions.repeat(2,1), truncation)
             if config.clf["on"]:
                 imgs2, clf_out = imgs2
-            print(z)
 
-            const2, w2 = E(imgs2, cond_vector)
+            # const2, w2 = E(imgs2, cond_vector)
 
             # mask_1 = grad_cam_plus_plus(imgs1,None) #[c,1,h,w]
             # mask_2 = grad_cam_plus_plus(imgs2,None)
@@ -162,19 +162,18 @@ def train(tensor_writer=None, args=None, dataloader=None):
 
             ##Image Vectors
             # Image
-            loss_imgs, loss_imgs_info = space_loss(imgs1, imgs2, lpips_model=loss_lpips)
+            # loss_imgs, loss_imgs_info = space_loss(imgs1, imgs2, lpips_model=loss_lpips)
             # Classifiers
             # TODO : add loss here
-            loss_msiv = loss_imgs  # + loss_mask + loss_Gcam
             if config.clf["on"]:
                 clf_loss = 0
                 for clf in clf_out:
                     print(clf.detach().sigmoid(), is_real)
                     clf_loss += F.binary_cross_entropy_with_logits(clf, is_real)
                 print(f"clf_loss={clf_loss}")
-            clf_loss.backward()
-            clf_optimizer.step()
-            clf_optimizer.zero_grad()
+                clf_loss.backward()
+                clf_optimizer.step()
+                clf_optimizer.zero_grad()
 
             # #loss AT1
             # imgs_medium_1 = imgs1[:,:,:,imgs1.shape[3]//8:-imgs1.shape[3]//8]#.detach().clone()
@@ -211,7 +210,9 @@ def train(tensor_writer=None, args=None, dataloader=None):
             # E_optimizer.step()
 
             # uncomment here
-            """
+            '''
+            E_optimizer.zero_grad()
+            loss_msiv = loss_imgs  # + loss_mask + loss_Gcam
             loss_msiv.backward(retain_graph=True)  # retain_graph=True
             E_optimizer.step()
 
@@ -231,7 +232,7 @@ def train(tensor_writer=None, args=None, dataloader=None):
             )  #  + loss_c2*0.01 #+ w1.norm(p=rho)*beta # 0.0003 0.0001 看要什么效果，重视重构效果就降低这个w1.norm(), 重视语意效果就提高
             loss_msLv.backward(retain_graph=True)  # retain_graph=True
             E_optimizer.step()
-            """
+            '''
 
             """
             if iteration == args.iterations//2:
@@ -267,7 +268,7 @@ def train(tensor_writer=None, args=None, dataloader=None):
                     print("---------ImageSpace--------", file=f)
                     # print('loss_small_info: %s'%loss_mask_info,file=f)
                     # print('loss_medium_info: %s'%loss_Gcam_info,file=f)
-                    print("loss_imgs_info: %s" % loss_imgs_info, file=f)
+                    # print("loss_imgs_info: %s" % loss_imgs_info, file=f)
                     print("---------LatentSpace--------", file=f)
                     # NOTE: commented
                     # print("loss_w_info: %s" % loss_w_info, file=f)
@@ -306,7 +307,7 @@ if __name__ == "__main__":
         "--lr", type=float, default=0.0003
     )  # better than 0.01 W:0.003, E:0.0003
     parser.add_argument("--beta_1", type=float, default=0.0)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=5)
     parser.add_argument("--experiment_dir", default=None)  # None
     parser.add_argument(
         "--img_dir", default="images/ILSVRC2012_img_val"
