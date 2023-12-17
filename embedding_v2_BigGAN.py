@@ -128,9 +128,11 @@ def train(tensor_writer=None, args=None, dataloader=None):
                 w1 = z
             is_real = torch.tensor([batch_real], dtype=float, device=w1.device)
 
+            # Getting
             imgs2, _ = generator(w1, conditions, truncation)
             if config.clf["on"]:
                 imgs2, clf_out = imgs2
+            print(z)
 
             const2, w2 = E(imgs2, cond_vector)
 
