@@ -22,6 +22,7 @@ from model.utils.custom_adam import LREQAdam
 from images.imagenet_dataset import ImgaeNetDataset
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
+from torch.optim import AdamW
 
 # from metric.grad_cam import GradCAM, GradCamPlusPlus, GuidedBackPropagation, mask2cam
 import torch.nn as nn
@@ -81,9 +82,9 @@ def train(tensor_writer=None, args=None, dataloader=None):
 
     # optimize clf
     if config.clf["on"]:
-        clf_optimizer = LREQAdam(
+        clf_optimizer = AdamW(
             [
-                {"params": generator.parameters()},
+                {"params": generator.generator.latent_clf.parameters()},
             ],
             lr=args.lr,
             betas=(args.beta_1, 0.99),
@@ -162,10 +163,9 @@ def train(tensor_writer=None, args=None, dataloader=None):
 
             ##Image Vectors
             # Image
-            loss_imgs, loss_imgs_info = space_loss(imgs1, imgs2, lpips_model=loss_lpips)
+            # loss_imgs, loss_imgs_info = space_loss(imgs1, imgs2, lpips_model=loss_lpips)
             # Classifiers
-            # TODO : add loss here
-            loss_msiv = loss_imgs  # + loss_mask + loss_Gcam
+            # loss_msiv = loss_imgs  # + loss_mask + loss_Gcam
             if config.clf["on"]:
                 clf_loss = 0
                 for clf in clf_out:
@@ -267,7 +267,7 @@ def train(tensor_writer=None, args=None, dataloader=None):
                     print("---------ImageSpace--------", file=f)
                     # print('loss_small_info: %s'%loss_mask_info,file=f)
                     # print('loss_medium_info: %s'%loss_Gcam_info,file=f)
-                    print("loss_imgs_info: %s" % loss_imgs_info, file=f)
+                    # print("loss_imgs_info: %s" % loss_imgs_info, file=f)
                     print("---------LatentSpace--------", file=f)
                     # NOTE: commented
                     # print("loss_w_info: %s" % loss_w_info, file=f)
