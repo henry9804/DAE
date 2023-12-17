@@ -28,7 +28,6 @@ from tqdm import tqdm
 
 
 def train(tensor_writer=None, args=None, dataloader=None):
-
     beta = args.beta
     rho = args.norm_p
 
@@ -90,7 +89,7 @@ def train(tensor_writer=None, args=None, dataloader=None):
         cond_vector = torch.cat((z, embed), dim=1)  # 128->256
         # cond_vector.requires_grad=True
         imgs1 = imgs1.to(device)
-        if args.optimizeE == False:
+        if not args.optimizeE:  # frozen encoder
             const1, w1_ = E(imgs1, cond_vector)
             w1 = w1_.detach()
             w1.requires_grad = True
@@ -111,12 +110,26 @@ def train(tensor_writer=None, args=None, dataloader=None):
             )  # Fresh the optimizer state. E_optimizer = LREQAdam([{'params': E.parameters()},], lr=args.lr, betas=(args.beta_1, 0.99), weight_decay=0)
         loss_msiv_min = 0
         for iteration in tqdm(range(0, args.iterations), desc="iteration", position=1):
-            if args.optimizeE == True:
+            if args.optimizeE:
                 const1, w1 = E(imgs1, cond_vector)
             # imgs2 = Gs.forward(w1,int(math.log(args.img_size,2)-2)) # 7->512 / 6->256
-            imgs2, _ = generator(
-                w1, conditions, truncation
-            )
+            import pdb
+
+            pdb.set_trace()
+            if np.random.random() < 0.5:
+                # TODO: fix real sampling case
+                is_real = True
+                c_v, z = E(imgs1, cond_vector)
+                raise NotImplementedError
+            else:
+                is_real = False
+                w1 = z
+            is_real = torch.tensor([is_real])
+
+            imgs2, _ = generator(w1, conditions, truncation)
+            if config.clf["on"]:
+                imgs2, clf_out = imgs2
+
             const2, w2 = E(imgs2, cond_vector)
 
             # mask_1 = grad_cam_plus_plus(imgs1,None) #[c,1,h,w]
@@ -135,6 +148,14 @@ def train(tensor_writer=None, args=None, dataloader=None):
             ##Image Vectors
             # Image
             loss_imgs, loss_imgs_info = space_loss(imgs1, imgs2, lpips_model=loss_lpips)
+            # Classifiers
+            # TODO : add loss here
+            E_optimizer.zero_grad()
+            loss_msiv = loss_imgs  # + loss_mask + loss_Gcam
+            if config.clf["on"]:
+                clf_loss = 0
+                for clf in clf_out:
+                    clf_loss += F.binary_cross_entropy_with_logits(clf, is_real)
 
             # #loss AT1
             # imgs_medium_1 = imgs1[:,:,:,imgs1.shape[3]//8:-imgs1.shape[3]//8]#.detach().clone()
@@ -170,8 +191,6 @@ def train(tensor_writer=None, args=None, dataloader=None):
             # loss_msiv.backward(retain_graph=True) #retain_graph=True
             # E_optimizer.step()
 
-            E_optimizer.zero_grad()
-            loss_msiv = loss_imgs  # + loss_mask + loss_Gcam
             loss_msiv.backward(retain_graph=True)  # retain_graph=True
             E_optimizer.step()
 
@@ -264,7 +283,9 @@ if __name__ == "__main__":
     parser.add_argument("--beta_1", type=float, default=0.0)
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--experiment_dir", default=None)  # None
-    parser.add_argument("--img_dir", default="images/ILSVRC2012_img_val")  # pt or directory
+    parser.add_argument(
+        "--img_dir", default="images/ILSVRC2012_img_val"
+    )  # pt or directory
     parser.add_argument("--img_size", type=int, default=256)
     parser.add_argument("--img_channels", type=int, default=3)  # RGB:3 ,L:1
     parser.add_argument("--z_dim", type=int, default=128)
