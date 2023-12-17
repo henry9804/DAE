@@ -21,6 +21,7 @@ import model.E.E_BIG as BE_BIG
 from model.utils.custom_adam import LREQAdam
 from images.imagenet_dataset import ImgaeNetDataset
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 
 # from metric.grad_cam import GradCAM, GradCamPlusPlus, GuidedBackPropagation, mask2cam
 import torch.nn as nn
@@ -155,9 +156,9 @@ def train(tensor_writer=None, args=None, dataloader=None):
             if config.clf["on"]:
                 clf_loss = 0
                 for clf in clf_out:
-                    # print(clf.detach().sigmoid(), is_real)
+                    print(clf.detach().sigmoid(), is_real)
                     clf_loss += F.binary_cross_entropy_with_logits(clf, is_real)
-                # print(f"clf_loss={clf_loss}")
+                print(f"clf_loss={clf_loss}")
             clf_loss.backward()
             E_optimizer.step()
             E_optimizer.zero_grad()
