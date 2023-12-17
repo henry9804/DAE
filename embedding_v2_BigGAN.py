@@ -128,9 +128,6 @@ def train(tensor_writer=None, args=None, dataloader=None):
             is_real = torch.tensor([batch_real], dtype=float, device=w1.device)
 
             imgs2, _ = generator(w1, conditions, truncation)
-            import pdb
-
-            pdb.set_trace()
             if config.clf["on"]:
                 imgs2, clf_out = imgs2
 
@@ -158,10 +155,11 @@ def train(tensor_writer=None, args=None, dataloader=None):
             if config.clf["on"]:
                 clf_loss = 0
                 for clf in clf_out:
-                    print(clf.detach().sigmoid(), is_real)
+                    # print(clf.detach().sigmoid(), is_real)
                     clf_loss += F.binary_cross_entropy_with_logits(clf, is_real)
-                print(f"clf_loss={clf_loss}")
-                loss_msiv += clf_loss
+                # print(f"clf_loss={clf_loss}")
+            clf_loss.backward()
+            E_optimizer.step()
             E_optimizer.zero_grad()
 
             # #loss AT1
@@ -198,6 +196,8 @@ def train(tensor_writer=None, args=None, dataloader=None):
             # loss_msiv.backward(retain_graph=True) #retain_graph=True
             # E_optimizer.step()
 
+            # uncomment here
+            """
             loss_msiv.backward(retain_graph=True)  # retain_graph=True
             E_optimizer.step()
 
@@ -217,6 +217,8 @@ def train(tensor_writer=None, args=None, dataloader=None):
             )  #  + loss_c2*0.01 #+ w1.norm(p=rho)*beta # 0.0003 0.0001 看要什么效果，重视重构效果就降低这个w1.norm(), 重视语意效果就提高
             loss_msLv.backward(retain_graph=True)  # retain_graph=True
             E_optimizer.step()
+            """
+
             """
             if iteration == args.iterations//2:
                 loss_msiv_min = loss_msiv.item()
@@ -253,9 +255,11 @@ def train(tensor_writer=None, args=None, dataloader=None):
                     # print('loss_medium_info: %s'%loss_Gcam_info,file=f)
                     print("loss_imgs_info: %s" % loss_imgs_info, file=f)
                     print("---------LatentSpace--------", file=f)
-                    print("loss_w_info: %s" % loss_w_info, file=f)
+                    # NOTE: commented
+                    # print("loss_w_info: %s" % loss_w_info, file=f)
                     # print('loss_c1_info: %s'%loss_c1_info,file=f)
-                    print("loss_c2_info: %s" % loss_c2_info, file=f)
+                    # NOTE: commented
+                    # print("loss_c2_info: %s" % loss_c2_info, file=f)
                     print("Img_loss: %s" % loss_msiv_min, file=f)
 
                 for i, j in enumerate(w1):
