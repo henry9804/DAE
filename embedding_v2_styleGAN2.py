@@ -129,7 +129,6 @@ def train(tensor_writer=None, args=None, imgs_tensor=None):
             # imgs2 = Gs.forward(w1,int(math.log(args.img_size,2)-2)) # 7->512 / 6->256
             imgs2 = generator(w1)
             import pdb
-
             pdb.set_trace()
 
             ##Image Vectors

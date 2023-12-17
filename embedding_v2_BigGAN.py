@@ -58,6 +58,9 @@ def train(tensor_writer=None, args=None, dataloader=None):
         E.load_state_dict(
             torch.load(args.checkpoint_dir_E, map_location=torch.device(device))
         )
+        if config.freeze_enc:
+            for p in E.parameters():
+                p.requires_grad = False
 
     writer = tensor_writer
     loss_lpips = lpips.LPIPS(net="vgg").to(device)
@@ -113,20 +116,21 @@ def train(tensor_writer=None, args=None, dataloader=None):
             if args.optimizeE:
                 const1, w1 = E(imgs1, cond_vector)
             # imgs2 = Gs.forward(w1,int(math.log(args.img_size,2)-2)) # 7->512 / 6->256
+            # TODO: have to consider bigger batch sizes
+            batch_real = []
+            if np.random.random() < 0.5:
+                batch_real.append(True)
+                _, z = E(imgs1, cond_vector)
+                w1 = z
+            else:
+                batch_real.append(False)
+                w1 = z
+            is_real = torch.tensor([batch_real], dtype=float, device=w1.device)
+
+            imgs2, _ = generator(w1, conditions, truncation)
             import pdb
 
             pdb.set_trace()
-            if np.random.random() < 0.5:
-                # TODO: fix real sampling case
-                is_real = True
-                c_v, z = E(imgs1, cond_vector)
-                raise NotImplementedError
-            else:
-                is_real = False
-                w1 = z
-            is_real = torch.tensor([is_real])
-
-            imgs2, _ = generator(w1, conditions, truncation)
             if config.clf["on"]:
                 imgs2, clf_out = imgs2
 
@@ -150,12 +154,15 @@ def train(tensor_writer=None, args=None, dataloader=None):
             loss_imgs, loss_imgs_info = space_loss(imgs1, imgs2, lpips_model=loss_lpips)
             # Classifiers
             # TODO : add loss here
-            E_optimizer.zero_grad()
             loss_msiv = loss_imgs  # + loss_mask + loss_Gcam
             if config.clf["on"]:
                 clf_loss = 0
                 for clf in clf_out:
+                    print(clf.detach().sigmoid(), is_real)
                     clf_loss += F.binary_cross_entropy_with_logits(clf, is_real)
+                print(f"clf_loss={clf_loss}")
+                loss_msiv += clf_loss
+            E_optimizer.zero_grad()
 
             # #loss AT1
             # imgs_medium_1 = imgs1[:,:,:,imgs1.shape[3]//8:-imgs1.shape[3]//8]#.detach().clone()
