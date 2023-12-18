@@ -23,13 +23,18 @@ from images.imagenet_dataset import ImgaeNetDataset
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 from torch.optim import AdamW
+from torchvision.utils import save_image
 
 # from metric.grad_cam import GradCAM, GradCamPlusPlus, GuidedBackPropagation, mask2cam
 import torch.nn as nn
 from tqdm import tqdm
+import random
 
 
 def train(tensor_writer=None, args=None, dataloader=None):
+    seed = 4328957320
+    torch.manual_seed(seed)
+    random.seed(seed)
     beta = args.beta
     rho = args.norm_p
 
@@ -70,24 +75,28 @@ def train(tensor_writer=None, args=None, dataloader=None):
 
             loss_msiv_min = 0
 
-            if config.clf["on"]:
-                batch_real = []
-                batch_w = []
-                batch_real.append(
-                    torch.ones(args.batch_size, dtype=float, device=w1.device)
-                )
-                batch_w.append(w1)
-                batch_real.append(
-                    torch.zeros(args.batch_size, dtype=float, device=w1.device)
-                )
-                batch_w.append(z)
-                is_real = torch.concat(batch_real).reshape(-1, 1)
-                w_ = torch.concat(batch_w)
+            # if config.clf["on"]:
+            batch_real = []
+            batch_w = []
+            batch_real.append(
+                torch.ones(args.batch_size, dtype=float, device=w1.device)
+            )
+            batch_w.append(w1)
+            batch_real.append(
+                torch.zeros(args.batch_size, dtype=float, device=w1.device)
+            )
+            batch_w.append(z)
+            is_real = torch.concat(batch_real).reshape(-1, 1)
+            w_ = torch.concat(batch_w)
 
             # Getting
             imgs2, _ = generator(w_, conditions.repeat(2, 1), truncation)
             if config.clf["on"]:
                 imgs2, clf_out = imgs2
+            save_image(
+                imgs2 * 0.5 + 0.5,
+                f"/home/pierre/data/gen_ai/no_clf_{seed}_{iteration}.png",
+            )
 
             # Classifiers
             if config.clf["on"]:
@@ -129,7 +138,8 @@ def train(tensor_writer=None, args=None, dataloader=None):
                         resultPath1_2
                         + "/id0-i%d-w%d-norm%f.pt" % (i, iteration, w1.norm()),
                     )
-                torch.save(generator, "clf_generator.pth")
+                # NOTE: dont forget to uncomment this
+                # torch.save(generator, "clf_generator.pth")
                 # for i,j in enumerate(imgs2):
                 #     torch.save(j.unsqueeze(0),resultPath1_2+'/id%d-i%d-img%d.pt'%(g,i,iteration))
                 # torch.save(E.state_dict(), resultPath1_2+'/E_model_ep%d.pth'%iteration)

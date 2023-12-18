@@ -27,9 +27,13 @@ from torch.optim import AdamW
 # from metric.grad_cam import GradCAM, GradCamPlusPlus, GuidedBackPropagation, mask2cam
 import torch.nn as nn
 from tqdm import tqdm
+import random
 
 
 def train(tensor_writer=None, args=None, dataloader=None):
+    seed = 4328957320
+    torch.manual_seed(seed)
+    random.seed(seed)
     beta = args.beta
     rho = args.norm_p
 
@@ -130,9 +134,7 @@ def train(tensor_writer=None, args=None, dataloader=None):
             if args.optimizeE == True:
                 _, w1 = E(imgs1, cond_vector)
             # imgs2 = Gs.forward(w1,int(math.log(args.img_size,2)-2)) # 7->512 / 6->256
-            imgs2, _ = generator(
-                w1, conditions, truncation
-            )
+            imgs2, _ = generator(w1, conditions, truncation)
             _, w2 = E(imgs2, cond_vector)
 
             # Image
@@ -188,11 +190,13 @@ def train(tensor_writer=None, args=None, dataloader=None):
                 #     torch.save(j.unsqueeze(0),resultPath1_2+'/id%d-i%d-img%d.pt'%(g,i,iteration))
                 # torch.save(E.state_dict(), resultPath1_2+'/E_model_ep%d.pth'%iteration)
 
-        test_img = torch.cat((imgs1[:n_row],imgs2[:n_row]))*0.5+0.5
-        torchvision.utils.save_image(test_img, resultPath1_1+'/id%d-norm%.2f.jpg'%(g,w1.norm()),nrow=2) # nrow=3
+        test_img = torch.cat((imgs1[:n_row], imgs2[:n_row])) * 0.5 + 0.5
+        torchvision.utils.save_image(
+            test_img, resultPath1_1 + "/id%d-norm%.2f.jpg" % (g, w1.norm()), nrow=2
+        )  # nrow=3
 
         torchvision.utils.save_image(
-            imgs2 * 0.5 + 0.5, writer_path + "/%s_rec.png" % str(g).rjust(5, "0")
+            imgs2 * 0.5 + 0.5, f"/home/pierre/data/results/gt_{seed}_{iteration}.png"
         )
         w_all.append(w1[0].cpu())
         label_all.append(labels[0].cpu())

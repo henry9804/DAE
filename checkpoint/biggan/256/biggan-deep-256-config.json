@@ -28,6 +28,7 @@
     "conv_down": 32,
     "hidden_dim": 32,
     "output_dim": 1,
-    "num_layers": 2
+    "num_layers": 2,
+    "alpha": 0.01
   }
 }

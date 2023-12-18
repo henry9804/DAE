@@ -400,6 +400,7 @@ class Generator(nn.Module):
         self.clf_on = clf["on"]
         latent_clf = []
         if self.clf_on:
+            self.alpha = clf["alpha"]
             # TODO: find how to dynamically fecth size
             res = [4, 8, 8, 16, 16, 32, 32, 64, 64, 64, 128, 128, 256]
             hidden_dims = [
@@ -455,7 +456,7 @@ class Generator(nn.Module):
                 if i != self.attention_layer_position:
                     x, feat_fusion = clf(z)
                     B, C = feat_fusion.shape
-                    z = z + 0.01 * feat_fusion.clone().detach().reshape(B, C, 1, 1)
+                    z = z + self.alpha * feat_fusion.clone().detach().reshape(B, C, 1, 1)
                     out_clf.append(x)
         else:
             for layer in self.layers:
@@ -590,5 +591,7 @@ if __name__ == "__main__":
 
     for index, (img, label, noise) in enumerate(zip(outputs, labels, noises)):
         class_num = torch.argmax(label)
-        torchvision.utils.save_image(img * 0.5 + 0.5, "image256/{}/{}.png".format(class_num, index))
+        torchvision.utils.save_image(
+            img * 0.5 + 0.5, "image256/{}/{}.png".format(class_num, index)
+        )
         torch.save(noise, "image256/{}/{}.pt".format(class_num, index))
