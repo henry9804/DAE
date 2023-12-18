@@ -455,7 +455,7 @@ class Generator(nn.Module):
                 if i != self.attention_layer_position:
                     x, feat_fusion = clf(z)
                     B, C = feat_fusion.shape
-                    z =  z + feat_fusion.clone().detach().reshape(B, C, 1, 1)
+                    z = z + 0.01 * feat_fusion.clone().detach().reshape(B, C, 1, 1)
                     out_clf.append(x)
         else:
             for layer in self.layers:
