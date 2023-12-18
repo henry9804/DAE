@@ -568,7 +568,7 @@ if __name__ == "__main__":
         )
         torch.save(model.state_dict(), cache_path)
     else:
-        model.load_state_dict(torch.load(cache_path))
+        model.load_state_dict(torch.load(cache_path), strict=False)
 
     model.eval()
 
@@ -578,25 +578,17 @@ if __name__ == "__main__":
 
     # Prepare a input
     truncation = 0.4
-    label = one_hot_from_names(["soap bubble", "coffee", "mushroom"], batch_size=3)
-    noise = truncated_noise_sample(truncation=truncation, batch_size=3)
+    labels = one_hot_from_names(["soap bubble", "coffee", "mushroom"], batch_size=3)
+    noises = truncated_noise_sample(truncation=truncation, batch_size=3)
 
-    # Tests
-    # noise = np.zeros((1, 128))
-    # label = [983]
-
-    noise = torch.tensor(noise, dtype=torch.float)
-    label = torch.tensor(label, dtype=torch.float)
-    print(label.shape)
-    print(noise.shape)
+    noises = torch.tensor(noises, dtype=torch.float)
+    labels = torch.tensor(labels, dtype=torch.float)
     with torch.no_grad():
-        outputs, cond = model(noise, label, truncation)
-    print(outputs.shape)
-    print(cond.shape)
-    # print(model)
+        outputs, cond = model(noises, labels, truncation)
 
     import torchvision
 
-    for index, img in enumerate(outputs):
-        torchvision.utils.save_image(img * 0.5 + 0.5, "image256/{}.png".format(index))
-    np.save("labels.npy", label.numpy())
+    for index, (img, label, noise) in enumerate(zip(outputs, labels, noises)):
+        class_num = torch.argmax(label)
+        torchvision.utils.save_image(img * 0.5 + 0.5, "image256/{}/{}.png".format(class_num, index))
+        torch.save(noise, "image256/{}/{}.pt".format(class_num, index))

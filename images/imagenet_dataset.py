@@ -12,8 +12,9 @@ class ImgaeNetDataset(Dataset):
         self.labels = []
         for c in os.listdir(os.path.join(self.img_dir)):
             for name in os.listdir(os.path.join(self.img_dir, c)):
-                self.file_name.append(os.path.join(c, name))
-                self.labels.append(int(c))
+                if name.endswith(".png") or name.endswith(".JPEG") or name.endswith(".jpg"):
+                    self.file_name.append(os.path.join(c, name))
+                    self.labels.append(int(c))
         self.loader = transforms.Compose([transforms.ToTensor(), *transforms_list])
 
     def __len__(self):
