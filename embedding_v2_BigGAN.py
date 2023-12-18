@@ -63,13 +63,13 @@ def train(tensor_writer=None, args=None, dataloader=None):
         if config.freeze_enc:
             for p in E.parameters():
                 p.requires_grad = False
-
     writer = tensor_writer
     loss_lpips = lpips.LPIPS(net="vgg").to(device)
     batch_size = args.batch_size
     it_d = 0
 
     # optimize E
+    args.optimizeE = False
     if args.optimizeE == True:
         E_optimizer = LREQAdam(
             [
@@ -86,9 +86,9 @@ def train(tensor_writer=None, args=None, dataloader=None):
             [
                 {"params": generator.generator.latent_clf.parameters()},
             ],
-            lr=args.lr,
-            betas=(args.beta_1, 0.99),
-            weight_decay=0.0,
+            # lr=args.lr,
+            # betas=(args.beta_1, 0.99),
+            # weight_decay=0.0,
         )  # 0.0003
 
     w_all = []
@@ -101,23 +101,23 @@ def train(tensor_writer=None, args=None, dataloader=None):
             embed = generator.embeddings(conditions)  # 1000 => z_dim: 128
             z = truncated_noise_sample(
                 truncation=0.4, batch_size=args.batch_size, seed=args.iterations % 30000
-            )
-            z = torch.tensor(z, dtype=torch.float).to(device)
+            )  # np
+            z = torch.tensor(z, dtype=torch.float).to(device)  # torch
             cond_vector = torch.cat((z, embed), dim=1)  # 128->256
             # cond_vector.requires_grad=True
             imgs1 = imgs1.to(device)
             if not args.optimizeE:  # frozen encoder
                 const1, w1_ = E(imgs1, cond_vector)
                 w1 = w1_.detach()
-                w1.requires_grad = True
-                E_optimizer = LREQAdam(
-                    [
-                        {"params": w1},
-                    ],
-                    lr=args.lr,
-                    betas=(args.beta_1, 0.99),
-                    weight_decay=0,
-                )
+                # w1.requires_grad = True
+                # E_optimizer = LREQAdam(
+                #     [
+                #         {"params": w1},
+                #     ],
+                #     lr=args.lr,
+                #     betas=(args.beta_1, 0.99),
+                #     weight_decay=0,
+                # )
             else:
                 E.load_state_dict(
                     torch.load(args.checkpoint_dir_E)
@@ -126,40 +126,37 @@ def train(tensor_writer=None, args=None, dataloader=None):
                     dict
                 )  # Fresh the optimizer state. E_optimizer = LREQAdam([{'params': E.parameters()},], lr=args.lr, betas=(args.beta_1, 0.99), weight_decay=0)
             loss_msiv_min = 0
-            _, w1 = E(imgs1, cond_vector)
+            _, w1 = E(imgs1, cond_vector)  # latent code for real images
             # if args.optimizeE:
             #     const1, w1 = E(imgs1, cond_vector)
             # imgs2 = Gs.forward(w1,int(math.log(args.img_size,2)-2)) # 7->512 / 6->256
-            # TODO: have to consider bigger batch sizes
             if config.clf["on"]:
-                batch_real = []
-                batch_w = []
-                batch_real.append(torch.ones(args.batch_size, dtype=float, device=w1.device))
-                batch_w.append(w1)
-                batch_real.append(torch.zeros(args.batch_size, dtype=float, device=w1.device))
-                batch_w.append(z)
-                is_real = torch.concat(batch_real).reshape(-1,1)
-                w_ = torch.concat(batch_w)
+                select_real = np.random.random(batch_size) > 0.5
+                is_real = torch.zeros((batch_size, 1), dtype=float, device=w1.device)
+                is_real[select_real] = 1.0
+                w_ = z
+                w_[select_real] = w1[select_real]
+
+                # batch_real = []
+                # batch_w = []
+                # batch_real.append(
+                #     torch.ones(args.batch_size, dtype=float, device=w1.device)
+                # )
+                # batch_w.append(w1)
+                # batch_real.append(
+                #     torch.zeros(args.batch_size, dtype=float, device=w1.device)
+                # )
+                # batch_w.append(z)
+                # is_real = torch.concat(batch_real).reshape(-1, 1)
+                # w_ = torch.concat(batch_w)
 
             # Getting
-            imgs2, _ = generator(w_, conditions.repeat(2,1), truncation)
+            print(w_.shape, conditions.shape)
+            imgs2, _ = generator(w_, conditions, truncation)
             if config.clf["on"]:
                 imgs2, clf_out = imgs2
 
             # const2, w2 = E(imgs2, cond_vector)
-
-            # mask_1 = grad_cam_plus_plus(imgs1,None) #[c,1,h,w]
-            # mask_2 = grad_cam_plus_plus(imgs2,None)
-            # imgs1.retain_grad()
-            # imgs2.retain_grad()
-            # imgs1_ = imgs1.detach().clone()
-            # imgs1_.requires_grad = True
-            # imgs2_ = imgs2.detach().clone()
-            # imgs2_.requires_grad = True
-            # grad_1 = gbp(imgs1_) # [n,c,h,w]
-            # grad_2 = gbp(imgs2_)
-            # heatmap_1,cam_1 = mask2cam(mask_1,imgs1)
-            # heatmap_2,cam_2 = mask2cam(mask_2,imgs2)
 
             ##Image Vectors
             # Image
@@ -177,42 +174,8 @@ def train(tensor_writer=None, args=None, dataloader=None):
                 clf_optimizer.step()
                 clf_optimizer.zero_grad()
 
-            # #loss AT1
-            # imgs_medium_1 = imgs1[:,:,:,imgs1.shape[3]//8:-imgs1.shape[3]//8]#.detach().clone()
-            # imgs_medium_2 = imgs2[:,:,:,imgs2.shape[3]//8:-imgs2.shape[3]//8]#.detach().clone()
-            # loss_medium, loss_medium_info = space_loss(imgs_medium_1,imgs_medium_2,lpips_model=loss_lpips)
-            # loss_medium, loss_medium_info = space_loss(mask_1.detach().clone(),mask_2.detach().clone(),lpips_model=loss_lpips)
-
-            # #loss AT2
-            # imgs_small_1 = imgs1[:,:,\
-            # imgs1.shape[2]//8+imgs1.shape[2]//32:-imgs1.shape[2]//8-imgs1.shape[2]//32,\
-            # imgs1.shape[3]//8+imgs1.shape[3]//32:-imgs1.shape[3]//8-imgs1.shape[3]//32]#.detach().clone()
-            # imgs_small_2 = imgs2[:,:,\
-            # imgs2.shape[2]//8+imgs2.shape[2]//32:-imgs2.shape[2]//8-imgs2.shape[2]//32,\
-            # imgs2.shape[3]//8+imgs2.shape[3]//32:-imgs2.shape[3]//8-imgs2.shape[3]//32]#.detach().clone()
-            # loss_small, loss_small_info = space_loss(imgs_small_1,imgs_small_2,lpips_model=loss_lpips)
-
-            ##--Mask_Cam as AT1 (HeatMap from Mask)
-            # mask_1 = mask_1.float().to(device)
-            # mask_1.requires_grad=True
-            # mask_2 = mask_2.float().to(device)
-            # mask_2.requires_grad=True
-            # loss_mask, loss_mask_info = space_loss(mask_1.detach().clone(),mask_2.detach().clone(),lpips_model=loss_lpips)
-
-            ##--Grad_CAM as AT2 (from mask with img)
-            # cam_1 = cam_1.float().to(device)
-            # cam_1.requires_grad=True
-            # cam_2 = cam_2.float().to(device)
-            # cam_2.requires_grad=True
-            # loss_Gcam, loss_Gcam_info = space_loss(cam_1.detach().clone(),cam_2.detach().clone(),lpips_model=loss_lpips)
-
-            # E_optimizer.zero_grad()
-            # loss_msiv = loss_imgs + loss_medium*0 + loss_small*0
-            # loss_msiv.backward(retain_graph=True) #retain_graph=True
-            # E_optimizer.step()
-
             # uncomment here
-            '''
+            """
             E_optimizer.zero_grad()
             loss_msiv = loss_imgs  # + loss_mask + loss_Gcam
             loss_msiv.backward(retain_graph=True)  # retain_graph=True
@@ -234,7 +197,7 @@ def train(tensor_writer=None, args=None, dataloader=None):
             )  #  + loss_c2*0.01 #+ w1.norm(p=rho)*beta # 0.0003 0.0001 看要什么效果，重视重构效果就降低这个w1.norm(), 重视语意效果就提高
             loss_msLv.backward(retain_graph=True)  # retain_graph=True
             E_optimizer.step()
-            '''
+            """
 
             """
             if iteration == args.iterations//2:
@@ -248,13 +211,6 @@ def train(tensor_writer=None, args=None, dataloader=None):
                 with open(resultPath+'/loss_min.txt','a+') as f:
                     print('ep%d_iter%d_minImg%.5f_wNorm%f'%(g,iteration,loss_msiv_min,w1.norm()),file=f)
             """
-            # if w_norm_min > w1.norm()*1.05 :
-            #     w_norm_min = w1.norm()
-            #     torch.save(w1,resultPath1_2+'/id%d-iter%d-norm-min%f-imgLoss%f.pt'%(g,iteration,w1.norm(),loss_msiv_min.item()))
-            #     test_img_min2 = torch.cat((imgs1[:n_row],imgs2[:n_row]))*0.5+0.5
-            #     torchvision.utils.save_image(test_img_min2, resultPath1_1+'/id%d_ep%d-norm-min%.2f-imgLoss%f.jpg'%(g, iteration, w1.norm(), loss_msiv_min.item()),nrow=n_row)
-            #     with open(resultPath+'/loss_min.txt','a+') as f:
-            #         print('ep%d_iter%d_Img%.5f_wNorm-min%f'%(g,iteration,loss_msiv_min.item(),w1.norm()),file=f)
 
             it_d += 1
             if iteration % 100 == 0:

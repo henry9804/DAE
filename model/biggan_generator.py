@@ -537,6 +537,8 @@ if __name__ == "__main__":
     resolved_config_file = "../checkpoint/biggan/256/biggan-deep-256-config.json"
     config = BigGANConfig.from_json_file(resolved_config_file)
     model = BigGAN(config)
+    # pytorch_total_params = sum(p.numel() for p in model.parameters())
+    # print(total_params)
     if load_tf:
         model = load_tf_weights_in_biggan(
             model,
