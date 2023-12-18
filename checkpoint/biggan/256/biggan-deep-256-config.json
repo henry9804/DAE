@@ -22,9 +22,9 @@
   "output_dim": 256,
   "z_dim": 128,
   "freeze_gan": true,
-  "freeze_enc": true,
+  "freeze_enc": false,
   "clf": {
-    "on": true,
+    "on": false,
     "conv_down": 32,
     "hidden_dim": 32,
     "output_dim": 1,

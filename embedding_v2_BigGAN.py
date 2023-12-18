@@ -92,113 +92,62 @@ def train(tensor_writer=None, args=None, dataloader=None):
         )  # 0.0003
 
     w_all = []
+    label_all = []
     img_all = []
 
-    truncation = torch.tensor(0.4, dtype=torch.float).to(device)
-    for iteration in tqdm(range(0, args.iterations), desc="iteration", position=1):
-        for g, (imgs1, labels) in tqdm(enumerate(dataloader), desc="batch", position=0):
-            conditions = one_hot(labels).to(device)
-            embed = generator.embeddings(conditions)  # 1000 => z_dim: 128
-            z = truncated_noise_sample(
-                truncation=0.4, batch_size=args.batch_size, seed=args.iterations % 30000
-            )  # np
-            z = torch.tensor(z, dtype=torch.float).to(device)  # torch
-            cond_vector = torch.cat((z, embed), dim=1)  # 128->256
-            # cond_vector.requires_grad=True
-            imgs1 = imgs1.to(device)
-            if not args.optimizeE:  # frozen encoder
-                const1, w1_ = E(imgs1, cond_vector)
-                w1 = w1_.detach()
-                # w1.requires_grad = True
-                # E_optimizer = LREQAdam(
-                #     [
-                #         {"params": w1},
-                #     ],
-                #     lr=args.lr,
-                #     betas=(args.beta_1, 0.99),
-                #     weight_decay=0,
-                # )
-            else:
-                E.load_state_dict(
-                    torch.load(args.checkpoint_dir_E)
-                )  # if not this reload, the max num of optimizing images is about 5-6.
-                E_optimizer.state = collections.defaultdict(
-                    dict
-                )  # Fresh the optimizer state. E_optimizer = LREQAdam([{'params': E.parameters()},], lr=args.lr, betas=(args.beta_1, 0.99), weight_decay=0)
-            loss_msiv_min = 0
-            _, w1 = E(imgs1, cond_vector)  # latent code for real images
-            # if args.optimizeE:
-            #     const1, w1 = E(imgs1, cond_vector)
+    for g, (imgs1, labels) in tqdm(enumerate(dataloader), desc="batch", position=0):
+        truncation = torch.tensor(0.4, dtype=torch.float).to(device)
+        conditions = one_hot(labels).to(device)
+        embed = generator.embeddings(conditions)  # 1000 => z_dim: 128
+        z = truncated_noise_sample(
+            truncation=0.4, batch_size=args.batch_size, seed=args.iterations % 30000
+        )
+        z = torch.tensor(z, dtype=torch.float).to(device)
+        cond_vector = torch.cat((z, embed), dim=1)  # 128->256
+        # cond_vector.requires_grad=True
+        imgs1 = imgs1.to(device)
+        if args.optimizeE == False:
+            const1, w1_ = E(imgs1, cond_vector)
+            w1 = w1_.detach()
+            w1.requires_grad = True
+            E_optimizer = LREQAdam(
+                [
+                    {"params": w1},
+                ],
+                lr=args.lr,
+                betas=(args.beta_1, 0.99),
+                weight_decay=0,
+            )
+        else:
+            E.load_state_dict(
+                torch.load(args.checkpoint_dir_E)
+            )  # if not this reload, the max num of optimizing images is about 5-6.
+            E_optimizer.state = collections.defaultdict(
+                dict
+            )  # Fresh the optimizer state. E_optimizer = LREQAdam([{'params': E.parameters()},], lr=args.lr, betas=(args.beta_1, 0.99), weight_decay=0)
+        loss_msiv_min = 0
+        for iteration in tqdm(range(0, args.iterations), desc="iteration", position=1):
+            if args.optimizeE == True:
+                _, w1 = E(imgs1, cond_vector)
             # imgs2 = Gs.forward(w1,int(math.log(args.img_size,2)-2)) # 7->512 / 6->256
-            if config.clf["on"]:
-                select_real = np.random.random(batch_size) > 0.5
-                is_real = torch.zeros((batch_size, 1), dtype=float, device=w1.device)
-                is_real[select_real] = 1.0
-                w_ = z
-                w_[select_real] = w1[select_real]
+            imgs2, _ = generator(
+                w1, conditions, truncation
+            )
+            _, w2 = E(imgs2, cond_vector)
 
-                # batch_real = []
-                # batch_w = []
-                # batch_real.append(
-                #     torch.ones(args.batch_size, dtype=float, device=w1.device)
-                # )
-                # batch_w.append(w1)
-                # batch_real.append(
-                #     torch.zeros(args.batch_size, dtype=float, device=w1.device)
-                # )
-                # batch_w.append(z)
-                # is_real = torch.concat(batch_real).reshape(-1, 1)
-                # w_ = torch.concat(batch_w)
-
-            # Getting
-            print(w_.shape, conditions.shape)
-            imgs2, _ = generator(w_, conditions, truncation)
-            if config.clf["on"]:
-                imgs2, clf_out = imgs2
-
-            # const2, w2 = E(imgs2, cond_vector)
-
-            ##Image Vectors
             # Image
-            # loss_imgs, loss_imgs_info = space_loss(imgs1, imgs2, lpips_model=loss_lpips)
-            # loss_imgs, loss_imgs_info = space_loss(imgs1, imgs2, lpips_model=loss_lpips)
-            # Classifiers
-            # TODO : add loss here
-            if config.clf["on"]:
-                clf_loss = 0
-                for clf in clf_out:
-                    print(clf.detach().sigmoid(), is_real)
-                    clf_loss += F.binary_cross_entropy_with_logits(clf, is_real)
-                print(f"clf_loss={clf_loss}")
-                clf_loss.backward()
-                clf_optimizer.step()
-                clf_optimizer.zero_grad()
-
-            # uncomment here
-            """
+            loss_imgs, loss_imgs_info = space_loss(imgs1, imgs2, lpips_model=loss_lpips)
             E_optimizer.zero_grad()
             loss_msiv = loss_imgs  # + loss_mask + loss_Gcam
             loss_msiv.backward(retain_graph=True)  # retain_graph=True
             E_optimizer.step()
 
             ##Latent-Vectors
-            ## w
             loss_w, loss_w_info = space_loss(w1, w2, image_space=False)
-
-            ## c1
-            # loss_c1, loss_c1_info = space_loss(const2,const3,image_space = False)
-
-            ## c2
-            loss_c2, loss_c2_info = space_loss(const1, const2, image_space=False)
-
             E_optimizer.zero_grad()
-            loss_msLv = (
-                loss_w * 0.01
-            )  #  + loss_c2*0.01 #+ w1.norm(p=rho)*beta # 0.0003 0.0001 看要什么效果，重视重构效果就降低这个w1.norm(), 重视语意效果就提高
+            loss_msLv = loss_w * 0.01
             loss_msLv.backward(retain_graph=True)  # retain_graph=True
             E_optimizer.step()
-            """
-
             """
             if iteration == args.iterations//2:
                 loss_msiv_min = loss_msiv.item()
@@ -224,16 +173,9 @@ def train(tensor_writer=None, args=None, dataloader=None):
                         file=f,
                     )
                     print("---------ImageSpace--------", file=f)
-                    # print('loss_small_info: %s'%loss_mask_info,file=f)
-                    # print('loss_medium_info: %s'%loss_Gcam_info,file=f)
-                    # print("loss_imgs_info: %s" % loss_imgs_info, file=f)
-                    # print("loss_imgs_info: %s" % loss_imgs_info, file=f)
+                    print("loss_imgs_info: %s" % loss_imgs_info, file=f)
                     print("---------LatentSpace--------", file=f)
-                    # NOTE: commented
-                    # print("loss_w_info: %s" % loss_w_info, file=f)
-                    # print('loss_c1_info: %s'%loss_c1_info,file=f)
-                    # NOTE: commented
-                    # print("loss_c2_info: %s" % loss_c2_info, file=f)
+                    print("loss_w_info: %s" % loss_w_info, file=f)
                     print("Img_loss: %s" % loss_msiv_min, file=f)
 
                 for i, j in enumerate(w1):
@@ -246,15 +188,21 @@ def train(tensor_writer=None, args=None, dataloader=None):
                 #     torch.save(j.unsqueeze(0),resultPath1_2+'/id%d-i%d-img%d.pt'%(g,i,iteration))
                 # torch.save(E.state_dict(), resultPath1_2+'/E_model_ep%d.pth'%iteration)
 
+        test_img = torch.cat((imgs1[:n_row],imgs2[:n_row]))*0.5+0.5
+        torchvision.utils.save_image(test_img, resultPath1_1+'/id%d-norm%.2f.jpg'%(g,w1.norm()),nrow=2) # nrow=3
+
         torchvision.utils.save_image(
             imgs2 * 0.5 + 0.5, writer_path + "/%s_rec.png" % str(g).rjust(5, "0")
         )
         w_all.append(w1[0].cpu())
+        label_all.append(labels[0].cpu())
         img_all.append(imgs2[0].cpu())
 
     w_all_tensor = torch.stack(w_all, dim=0)
+    label_all_tensor = torch.stack(label_all, dim=0)
     img_all_tensor = torch.stack(img_all, dim=0)
     torch.save(w_all_tensor, resultPath1_2 + "/w_all_%d.pt" % g)
+    torch.save(label_all_tensor, resultPath1_2 + "/label_all_%d.pt" % g)
     torch.save(img_all_tensor, resultPath1_2 + "/img_all_%d.pt" % g)
 
 
@@ -266,7 +214,7 @@ if __name__ == "__main__":
         "--lr", type=float, default=0.0003
     )  # better than 0.01 W:0.003, E:0.0003
     parser.add_argument("--beta_1", type=float, default=0.0)
-    parser.add_argument("--batch_size", type=int, default=5)
+    parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--experiment_dir", default=None)  # None
     parser.add_argument(
         "--img_dir", default="images/ILSVRC2012_img_val"
