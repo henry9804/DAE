@@ -453,13 +453,9 @@ class Generator(nn.Module):
                 else:
                     z = layer(z)  # [5, 2048, 8, 8]
                 if i != self.attention_layer_position:
-                    print(z.shape)
-                    import pdb
-
-                    pdb.set_trace()
                     x, feat_fusion = clf(z)
                     B, C = feat_fusion.shape
-                    z += feat_fusion.clone().detach().reshape(B, C, 1, 1)
+                    z =  z + feat_fusion.clone().detach().reshape(B, C, 1, 1)
                     out_clf.append(x)
         else:
             for layer in self.layers:
@@ -467,9 +463,6 @@ class Generator(nn.Module):
                     z = layer(z, cond_vector, truncation)  # [5, 2048, 4, 4]
                 else:
                     z = layer(z)  # [5, 2048, 8, 8]
-        import pdb
-
-        pdb.set_trace()
 
         z = self.bn(z, truncation)  # [5, 128, 256, 256]
 
