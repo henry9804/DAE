@@ -316,9 +316,11 @@ class MLP(nn.Module):
         )
 
     def forward(self, x):
+        intermediate = []
         for i, layer in enumerate(self.layers):
             x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
-        return x
+            intermediate.append(x)
+        return x, intermediate[-2]
 
 
 class LatentClassfier(nn.Module):
@@ -400,6 +402,21 @@ class Generator(nn.Module):
         if self.clf_on:
             # TODO: find how to dynamically fecth size
             res = [4, 8, 8, 16, 16, 32, 32, 64, 64, 64, 128, 128, 256]
+            hidden_dims = [
+                2048,
+                2048,
+                2048,
+                1024,
+                1024,
+                1024,
+                1024,
+                512,
+                512,
+                512,
+                256,
+                256,
+                128,
+            ]
             for i, (layer, r) in enumerate(zip(layers, res)):
                 if i != config.attention_layer_position:
                     size = r**2
@@ -408,7 +425,7 @@ class Generator(nn.Module):
                             size=size,
                             in_channels=layer.conv_3.out_channels,
                             conv_down=clf["conv_down"],
-                            hidden_dim=clf["hidden_dim"],
+                            hidden_dim=hidden_dims[i],
                             output_dim=clf["output_dim"],
                             num_layers=clf["num_layers"],
                         )
@@ -436,13 +453,23 @@ class Generator(nn.Module):
                 else:
                     z = layer(z)  # [5, 2048, 8, 8]
                 if i != self.attention_layer_position:
-                    out_clf.append(clf(z))
+                    print(z.shape)
+                    import pdb
+
+                    pdb.set_trace()
+                    x, feat_fusion = clf(z)
+                    B, C = feat_fusion.shape
+                    z += feat_fusion.clone().detach().reshape(B, C, 1, 1)
+                    out_clf.append(x)
         else:
             for layer in self.layers:
                 if isinstance(layer, GenBlock):
                     z = layer(z, cond_vector, truncation)  # [5, 2048, 4, 4]
                 else:
                     z = layer(z)  # [5, 2048, 8, 8]
+        import pdb
+
+        pdb.set_trace()
 
         z = self.bn(z, truncation)  # [5, 128, 256, 256]
 

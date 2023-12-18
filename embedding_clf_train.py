@@ -53,12 +53,14 @@ def train(tensor_writer=None, args=None, dataloader=None):
             weight_decay=0.0,
         )  # 0.0003
 
-    latents = torch.load(resultPath1_2+'/w_all_1.pt')
-    labels = torch.load(resultPath1_2+'/label_all_1.pt')
+    latents = torch.load(resultPath1_2 + "/w_all_2.pt")
+    labels = torch.load(resultPath1_2 + "/label_all_2.pt")
 
     truncation = torch.tensor(0.4, dtype=torch.float).to(device)
     for iteration in tqdm(range(0, args.iterations), desc="iteration", position=1):
-        for g, (w1, label) in tqdm(enumerate(zip(latents, labels)), desc="batch", position=0):
+        for g, (w1, label) in tqdm(
+            enumerate(zip(latents, labels)), desc="batch", position=0
+        ):
             w1 = w1.unsqueeze(0).to(device)
             conditions = one_hot(label).unsqueeze(0).to(device)
             z = truncated_noise_sample(
@@ -67,19 +69,23 @@ def train(tensor_writer=None, args=None, dataloader=None):
             z = torch.tensor(z, dtype=torch.float).to(device)
 
             loss_msiv_min = 0
-            
+
             if config.clf["on"]:
                 batch_real = []
                 batch_w = []
-                batch_real.append(torch.ones(args.batch_size, dtype=float, device=w1.device))
+                batch_real.append(
+                    torch.ones(args.batch_size, dtype=float, device=w1.device)
+                )
                 batch_w.append(w1)
-                batch_real.append(torch.zeros(args.batch_size, dtype=float, device=w1.device))
+                batch_real.append(
+                    torch.zeros(args.batch_size, dtype=float, device=w1.device)
+                )
                 batch_w.append(z)
-                is_real = torch.concat(batch_real).reshape(-1,1)
+                is_real = torch.concat(batch_real).reshape(-1, 1)
                 w_ = torch.concat(batch_w)
 
             # Getting
-            imgs2, _ = generator(w_, conditions.repeat(2,1), truncation)
+            imgs2, _ = generator(w_, conditions.repeat(2, 1), truncation)
             if config.clf["on"]:
                 imgs2, clf_out = imgs2
 
@@ -123,6 +129,7 @@ def train(tensor_writer=None, args=None, dataloader=None):
                         resultPath1_2
                         + "/id0-i%d-w%d-norm%f.pt" % (i, iteration, w1.norm()),
                     )
+                torch.save(generator, "clf_generator.pth")
                 # for i,j in enumerate(imgs2):
                 #     torch.save(j.unsqueeze(0),resultPath1_2+'/id%d-i%d-img%d.pt'%(g,i,iteration))
                 # torch.save(E.state_dict(), resultPath1_2+'/E_model_ep%d.pth'%iteration)
